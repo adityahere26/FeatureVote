@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(47);
+select plan(53);
 
 -- Fixtures: alice owns private workspace A (bob is a member); dave owns public
 -- workspace B; carol belongs to nothing.
@@ -40,8 +40,12 @@ select is(
 set local role anon;
 select set_config('request.jwt.claims', '{"role":"anon"}', true);
 
-select is((select count(*) from public.workspaces), 1::bigint, 'anon sees only public workspaces');
-select is((select count(*) from public.feature_requests), 2::bigint, 'anon sees only public requests');
+select is(
+  (select count(*) from public.workspaces where id in ('10000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000b')),
+  1::bigint, 'anon sees only public workspaces');
+select is(
+  (select count(*) from public.feature_requests where workspace_id in ('10000000-0000-0000-0000-00000000000a', '10000000-0000-0000-0000-00000000000b')),
+  2::bigint, 'anon sees only public requests');
 select throws_ok(
   $$insert into public.feature_requests (workspace_id, title)
     values ('10000000-0000-0000-0000-00000000000b', 'Anon spam')$$,
@@ -176,6 +180,41 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-0000000
 select throws_ok(
   $$select public.accept_invite(current_setting('test.token'))$$,
   'P0002', null, 'invites are single use');
+
+-- Admins sit below owners -------------------------------------------------------
+reset role;
+update public.workspace_memberships set role = 'admin'
+where workspace_id = '10000000-0000-0000-0000-00000000000a'
+  and user_id = '00000000-0000-0000-0000-00000000000b';
+insert into public.workspace_invites (workspace_id, token_hash, expires_at) values
+  ('10000000-0000-0000-0000-00000000000a',
+   encode(extensions.digest('expired-token', 'sha256'), 'hex'),
+   now() - interval '1 minute');
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000b","role":"authenticated"}', true);
+
+select lives_ok(
+  $$select public.create_invite('10000000-0000-0000-0000-00000000000a', 'member')$$,
+  'admins can invite members');
+select throws_ok(
+  $$select public.create_invite('10000000-0000-0000-0000-00000000000a', 'admin')$$,
+  '42501', null, 'admins cannot invite other admins');
+select throws_ok(
+  $$select public.change_member_role('10000000-0000-0000-0000-00000000000a',
+    '00000000-0000-0000-0000-00000000000b', 'owner')$$,
+  '42501', null, 'admins cannot promote themselves');
+select throws_ok(
+  $$select public.remove_member('10000000-0000-0000-0000-00000000000a',
+    '00000000-0000-0000-0000-00000000000a')$$,
+  '42501', null, 'admins cannot remove owners');
+select is(
+  (select count(*) from public.account_deletion_blockers()),
+  0::bigint, 'non-owners have no deletion blockers');
+
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000c","role":"authenticated"}', true);
+select throws_ok(
+  $$select public.accept_invite('expired-token')$$,
+  'P0002', null, 'expired invites are refused');
 
 -- Account and workspace deletion ------------------------------------------------
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-0000-0000-00000000000a","role":"authenticated"}', true);
