@@ -57,6 +57,9 @@ export default async function WorkspacePage({ params, searchParams }) {
             </p>
           </div>
           <div className="flex items-center gap-4">
+            <Link href={`/w/${slug}/roadmap`} className="text-sm">
+              Roadmap
+            </Link>
             {workspace.role && (
               <Link href={`/w/${slug}/settings`} className="text-sm">
                 Settings

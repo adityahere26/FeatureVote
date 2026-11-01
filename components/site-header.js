@@ -14,6 +14,7 @@ export async function SiteHeader() {
         {userId ? (
           <nav className="flex items-center gap-4 text-sm">
             <Link href="/workspaces">Workspaces</Link>
+            <Link href="/account">Account</Link>
             <form action={signOut}>
               <button type="submit">Sign out</button>
             </form>
